@@ -1,0 +1,26 @@
+# CPU deployment. Slow for a full sweep, fine for spot checks and for CI.
+services:
+  wavlm:
+    build:
+      context: .
+      dockerfile: Dockerfile.cpu
+    image: ghcr.io/kengrinder/wavlm-phoneme-validator:cpu
+    container_name: wavlm-phoneme-validator-cpu
+
+    ports:
+      - "${WAVLM_PORT:-8005}:8000"
+
+    volumes:
+      - "${WAVLM_CONFIG_DIR:-./data}:/config"
+
+    environment:
+      WAVLM_DEVICE: cpu
+      WAVLM_PRELOAD_MODELS: "1"
+      WAVLM_MAX_CONCURRENCY: "1"
+
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    restart: unless-stopped

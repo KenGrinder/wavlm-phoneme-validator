@@ -1,0 +1,121 @@
+--- /tmp/pipeline_v2.pristine.py	2026-09-07 13:15:01.107688100 -0400
++++ app/vendor/pipeline_v2.py	2026-09-07 13:15:09.684721400 -0400
+@@ -1,4 +1,10 @@
+ """
++VENDORED, THEN PATCHED. Do not edit by hand -- see patches/ and app/vendor/UPSTREAM.md.
++
++Upstream: https://huggingface.co/Jianshu001/wavlm-phoneme-scorer (MIT)
++Revision: 19f6b9675d02a61dcd5b2aec0fdcc4364c1fc9da
++Patches:  0001-assess-explicit-phones.patch
++
+ Voice Correction Pipeline v2.0 (WavLM Fine-tuned)
+ ==================================================
+ Phoneme-level English pronunciation assessment using a fine-tuned WavLM-Large
+@@ -333,11 +339,15 @@
+         T_ctc = emissions.shape[0]
+         scale = T_h / T_ctc
+ 
++        # PATCH: measured, not assumed -- CTC stride varies with the model.
++        frame_ms = (len(wav_np) / SAMPLE_RATE * 1000.0) / max(T_ctc, 1)
++
+         # Per-phoneme: pool hidden states, compute GOP, run MLP
+         results = []
+         for i, expected_idx in enumerate(phone_indices):
+             if i >= len(segments):
+-                results.append({"gop": -20.0, "score": 0.0, "pherr_prob": 1.0})
++                results.append({"gop": -20.0, "score": 0.0, "pherr_prob": 1.0,
++                                "n_frames": 0, "start_ms": None, "end_ms": None})
+                 continue
+ 
+             _, frames = segments[i]
+@@ -362,6 +372,10 @@
+                 "h": h_pooled,
+                 "gop": gop,
+                 "n_frames": len(frames),
++                # PATCH: frame span -> wall-clock, so a reviewer can be told which
++                # 200 ms of a clip the model doubts instead of replaying the whole thing.
++                "start_ms": round(min(frames) * frame_ms, 1),
++                "end_ms": round((max(frames) + 1) * frame_ms, 1),
+             })
+ 
+         # Batch MLP inference
+@@ -398,24 +412,56 @@
+         # G2P
+         phone_info = self._text_to_phonemes(text)
+         if not phone_info:
+-            return {"text": text, "overall_score": 0, "words": [], "error": "No phonemes extracted"}
++            return {"text": text, "overall_score": 0, "words": [], "unmapped": [],
++                    "error": "No phonemes extracted"}
++
++        return self.assess_phones(audio_path, phone_info, text=text)
++
++    def assess_phones(self, audio_path, phone_info, text=None):
++        """
++        PATCH: assess against a caller-supplied expected phone sequence.
++
++        ``phone_info`` is a list of ``{"phone", "word", "word_idx"}`` using the ARPABET
++        keys of ``ARPABET_TO_IPA``. This exists because the caller here already has a
++        canonical pronunciation from a trusted source, and letting the model re-derive
++        one with its own G2P would score the audio against a different target than the
++        one the synthesizer was given.
++
++        Unlike upstream, phones the CTC vocabulary cannot represent are returned in
++        ``unmapped`` rather than silently deleted from the expected sequence.
++        """
++        self._load_models()
++
++        if text is None:
++            text = " ".join(dict.fromkeys(
++                pi.get("word") for pi in phone_info if pi.get("word")
++            )) or " ".join(pi["phone"] for pi in phone_info)
+ 
+         # Map to model indices
+         indices = []
+         valid_info = []
+-        for pi in phone_info:
++        unmapped = []
++        for position, pi in enumerate(phone_info):
+             idx = self._arpabet_to_model_idx(pi["phone"])
+             if idx >= 0:
+                 indices.append(idx)
+                 valid_info.append(pi)
++            else:
++                unmapped.append({
++                    "position": position,
++                    "phone": pi["phone"],
++                    "word": pi.get("word"),
++                })
+         if not indices:
+-            return {"text": text, "overall_score": 0, "words": [], "error": "No phonemes mapped"}
++            return {"text": text, "overall_score": 0, "words": [], "unmapped": unmapped,
++                    "error": "No phonemes mapped"}
+ 
+         # Load audio & score
+         waveform = self.load_audio(audio_path)
+         result = self._score_phonemes(waveform, indices)
+         if result is None:
+-            return {"text": text, "overall_score": 0, "words": [], "error": "Alignment failed"}
++            return {"text": text, "overall_score": 0, "words": [], "unmapped": unmapped,
++                    "error": "Alignment failed"}
+ 
+         raw_results, valid_idx, h_batch, gop_batch, nf_batch = result
+ 
+@@ -445,6 +491,9 @@
+                 "gop": round(raw["gop"], 3),
+                 "pherr_prob": round(pherr_prob, 3),
+                 "error": pherr_prob >= self.pherr_threshold,
++                "n_frames": raw.get("n_frames", 0),
++                "start_ms": raw.get("start_ms"),
++                "end_ms": raw.get("end_ms"),
+             })
+ 
+         # Group by word
+@@ -488,6 +537,8 @@
+             "n_phonemes": len(phoneme_results),
+             "n_errors": n_total_errors,
+             "error_rate": round(n_total_errors / len(phoneme_results) * 100, 1),
++            "unmapped": unmapped,
++            "phonemes": phoneme_results,
+             "words": words_list,
+         }
+ 

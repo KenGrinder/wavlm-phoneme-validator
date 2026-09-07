@@ -1,0 +1,5 @@
+# Everything here runs without torch. The phone-normalisation tests are the ones with
+# real logic, and they should be runnable on any machine in under a second.
+httpx==0.28.1
+pytest>=8.3,<10
+ruff>=0.12,<1

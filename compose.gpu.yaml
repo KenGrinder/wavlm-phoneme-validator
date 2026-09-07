@@ -1,0 +1,39 @@
+# GPU deployment. Mirrors the Unraid template so a compose user and an Unraid user get
+# the same container.
+services:
+  wavlm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/kengrinder/wavlm-phoneme-validator:gpu
+    container_name: wavlm-phoneme-validator
+
+    ports:
+      - "${WAVLM_PORT:-8005}:8000"
+
+    volumes:
+      - "${WAVLM_CONFIG_DIR:-./data}:/config"
+
+    environment:
+      WAVLM_DEVICE: cuda
+      WAVLM_PRELOAD_MODELS: "1"
+      # One clip at a time. Two concurrent WavLM-Large passes do not fit alongside the
+      # other resident models on an 11 GB card.
+      WAVLM_MAX_CONCURRENCY: "1"
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    restart: unless-stopped

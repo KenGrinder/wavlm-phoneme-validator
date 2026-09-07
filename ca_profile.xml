@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<CommunityApplications>
+  <Profile>Phoneme-level pronunciation scoring as a REST API. Give it a recording and the pronunciation you expected, and it returns a score and an error probability for every individual phone, plus where in the clip each one was aligned. Built on the WavLM phoneme scorer and intended as an independent second opinion alongside a speech recogniser: a recogniser tells you what it heard, this tells you how well the sound you asked for was actually produced. GPU and CPU images; the GPU image targets Pascal-era NVIDIA cards.</Profile>
+  <Icon>https://raw.githubusercontent.com/KenGrinder/wavlm-phoneme-validator/main/icon.png</Icon>
+  <WebPage>https://github.com/KenGrinder/wavlm-phoneme-validator</WebPage>
+  <Forum>https://github.com/KenGrinder/wavlm-phoneme-validator/issues</Forum>
+</CommunityApplications>

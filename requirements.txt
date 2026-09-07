@@ -1,0 +1,24 @@
+# Runtime dependencies. torch/torchaudio are NOT listed here -- the Dockerfiles install
+# them from a CUDA-specific index, and the version there is load-bearing (see Dockerfile).
+
+transformers==4.57.6
+# transformers 5.x is out, but 4.57.x is the last line verified against this vendored
+# pipeline's WavLMModel / Wav2Vec2ForCTC / Wav2Vec2FeatureExtractor imports.
+huggingface-hub==0.36.2
+
+g2p-en==2.1.0
+# nltk 3.9 renamed the POS tagger to averaged_perceptron_tagger_eng while g2p_en still
+# asks for the old name. Both are pre-downloaded in the image, which is why this pin is
+# safe; drop that step and the text= path breaks at first request, not at build.
+nltk==3.9.1
+
+numpy==1.26.4
+# Held at 1.x deliberately: g2p_en 2.1.0 predates the numpy 2 API removals, and it is
+# loaded unconditionally when the models come up, so a failure there takes the whole
+# service down rather than just the convenience endpoint.
+
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+python-multipart==0.0.32
+pydantic==2.13.5
+soundfile==0.14.0

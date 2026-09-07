@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="WavLM Phoneme Validator">
+  <title>WavLM Phoneme Validator</title>
+  <rect width="512" height="512" rx="96" fill="#121e33"/>
+  <rect x="71" y="196" width="34" height="120" rx="17" fill="#7dd3c0"/>
+  <rect x="127" y="154" width="34" height="204" rx="17" fill="#7dd3c0"/>
+  <rect x="183" y="110" width="34" height="292" rx="17" fill="#7dd3c0"/>
+  <rect x="239" y="84" width="34" height="344" rx="17" fill="#7dd3c0"/>
+  <rect x="295" y="132" width="34" height="248" rx="17" fill="#f0a03c"/>
+  <rect x="351" y="172" width="34" height="168" rx="17" fill="#7dd3c0"/>
+  <rect x="407" y="202" width="34" height="108" rx="17" fill="#7dd3c0"/>
+</svg>

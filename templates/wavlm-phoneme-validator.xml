@@ -1,0 +1,41 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>WavLM-Phoneme-Validator</Name>
+  <Repository>ghcr.io/kengrinder/wavlm-phoneme-validator:gpu</Repository>
+  <Registry>https://github.com/KenGrinder/wavlm-phoneme-validator/pkgs/container/wavlm-phoneme-validator</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/KenGrinder/wavlm-phoneme-validator/issues</Support>
+  <Project>https://github.com/KenGrinder/wavlm-phoneme-validator</Project>
+  <Overview>Phoneme-level pronunciation scoring as a REST API, built on the WavLM phoneme scorer (fine-tuned WavLM-Large, trained on 53,926 professionally labelled phonemes of children's English). Unlike a speech recogniser, which answers "what did you hear", this answers "how well was this specific expected phone produced" - so it can be given a canonical pronunciation and asked to grade audio against it. Intended as an independent second validator alongside OpenPronounce. This GPU template is tuned for an NVIDIA GTX 1080 Ti and persists the model cache in appdata.</Overview>
+  <Category>Tools: MediaApp:Other</Category>
+  <WebUI>http://[IP]:[PORT:8000]/docs</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/KenGrinder/wavlm-phoneme-validator/main/templates/wavlm-phoneme-validator.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/KenGrinder/wavlm-phoneme-validator/main/icon.png</Icon>
+  <ReadMe>https://raw.githubusercontent.com/KenGrinder/wavlm-phoneme-validator/main/README.md</ReadMe>
+  <ExtraParams>--runtime=nvidia --gpus=all --security-opt=no-new-privileges --cap-drop=ALL</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <Date>2026-09-07</Date>
+  <MinVer>6.12.0</MinVer>
+  <License>MIT</License>
+  <Changes>1.0.0: Initial release.</Changes>
+  <ExtraSearchTerms>pronunciation phoneme wavlm speech tts qa validation openpronounce kokoro</ExtraSearchTerms>
+  <DonateText/>
+  <DonateLink/>
+  <Requires>The Unraid NVIDIA Driver plugin and a working NVIDIA container runtime. The first start downloads about 1.3 GB of model weights into appdata; the container reports healthy during that download but /api/v1/ready answers 503 until it finishes. Roughly 3 GB of VRAM is used once loaded, so check what else is on the card first.</Requires>
+  <Config Name="API Port" Target="8000" Default="8005" Mode="tcp" Description="REST API and OpenAPI docs. 8005 avoids OpenPronounce on 8004 and Kokoro on 8880." Type="Port" Display="always" Required="true" Mask="false">8005</Config>
+  <Config Name="Persistent Configuration" Target="/config" Default="/mnt/user/appdata/wavlm-phoneme-validator" Mode="rw" Description="Hugging Face model cache and torch cache. About 3 GB once populated." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/wavlm-phoneme-validator</Config>
+  <Config Name="API Key" Target="WAVLM_API_KEY" Default="" Mode="" Description="Optional shared secret. Clients may send X-API-Key or Authorization: Bearer. Recommended outside a trusted LAN." Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="NVIDIA GPU" Target="NVIDIA_VISIBLE_DEVICES" Default="all" Mode="" Description="Use all, a GPU index such as 0, or a GPU UUID from nvidia-smi -L." Type="Variable" Display="always" Required="true" Mask="false">all</Config>
+  <Config Name="NVIDIA Driver Capabilities" Target="NVIDIA_DRIVER_CAPABILITIES" Default="compute,utility" Mode="" Description="Capabilities required for CUDA inference and GPU status." Type="Variable" Display="advanced" Required="true" Mask="false">compute,utility</Config>
+  <Config Name="Torch Device" Target="WAVLM_DEVICE" Default="cuda" Mode="" Description="cuda for the selected NVIDIA GPU; use cpu only with the :cpu image." Type="Variable" Display="advanced" Required="true" Mask="false">cuda</Config>
+  <Config Name="Preload Models" Target="WAVLM_PRELOAD_MODELS" Default="1" Mode="" Description="Download and load the scorer in the background at startup instead of on the first request." Type="Variable" Display="always" Required="true" Mask="false">1</Config>
+  <Config Name="Maximum Concurrent Assessments" Target="WAVLM_MAX_CONCURRENCY" Default="1" Mode="" Description="Keep at 1 on an 11 GB GTX 1080 Ti. Two concurrent WavLM-Large passes will not fit alongside other resident models." Type="Variable" Display="advanced" Required="true" Mask="false">1</Config>
+  <Config Name="Maximum Upload MB" Target="WAVLM_MAX_UPLOAD_MB" Default="25" Mode="" Description="Reject larger audio uploads before decoding." Type="Variable" Display="advanced" Required="true" Mask="false">25</Config>
+  <Config Name="Phoneme Error Threshold" Target="WAVLM_PHERR_THRESHOLD" Default="0.70" Mode="" Description="Probability above which a phone is flagged as an error. 0.70 is the upstream calibration on children's speech; recalibrate for synthesized audio before trusting it." Type="Variable" Display="advanced" Required="true" Mask="false">0.70</Config>
+  <Config Name="Verify Checkpoint Hash" Target="WAVLM_VERIFY_CHECKSUM" Default="1" Mode="" Description="Check the downloaded checkpoint against its pinned sha256 on first load. The file is a pickle loaded with weights_only=False, so leave this on." Type="Variable" Display="advanced" Required="true" Mask="false">1</Config>
+  <Config Name="CORS Origins" Target="WAVLM_CORS_ORIGINS" Default="" Mode="" Description="Optional comma-separated browser origins. Leave blank unless a web app calls this API directly." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+</Container>

@@ -1,0 +1,17 @@
+.git
+.github
+.ruff_cache
+.pytest_cache
+__pycache__
+*.pyc
+data
+tests
+patches
+templates
+scripts
+*.md
+!README.md
+compose.*.yaml
+icon.png
+icon.svg
+ca_profile.xml

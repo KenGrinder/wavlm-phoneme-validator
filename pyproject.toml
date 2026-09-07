@@ -1,0 +1,30 @@
+[project]
+name = "wavlm-phoneme-validator"
+version = "1.0.0"
+description = "Phoneme-level pronunciation scoring API with explicit expected-pronunciation input"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+# Vendored upstream is held at its patched state, not reformatted -- a reformat would
+# bury the three-hunk patch in noise and make the next upstream bump unreviewable.
+extend-exclude = ["app/vendor"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "C4", "SIM"]
+ignore = ["S101"]  # pytest asserts
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S", "E501"]
+# FastAPI's dependency defaults ARE function calls in argument defaults; that is the
+# framework's declaration syntax, not the mutable-default bug B008 exists to catch.
+"app/main.py" = ["B008"]
+# These parse this repository's own committed XML in CI. Adding defusedxml to guard
+# against files we author ourselves would be ceremony, not defence.
+"scripts/validate_templates.py" = ["S314"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
