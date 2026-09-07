@@ -59,6 +59,29 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64
+          push: false
+          load: true
+          tags: wavlm-release:test
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            VCS_REF=${{ github.sha }}
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+          cache-from: type=gha,scope=${{ matrix.variant }}
+          cache-to: type=gha,scope=${{ matrix.variant }},mode=min
+      - name: Regression tests in the built image
+        run: |
+          docker run --rm --user 0 -e WAVLM_PRELOAD_MODELS=0 \
+            -v "${{ github.workspace }}/tests:/srv/tests:ro" \
+            -v "${{ github.workspace }}/pyproject.toml:/srv/pyproject.toml:ro" \
+            wavlm-release:test sh -c 'pip install --quiet pytest httpx && python -m pytest /srv/tests'
+      - name: Smoke-test with the Unraid permissions
+        run: bash scripts/smoke-container.sh wavlm-release:test
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

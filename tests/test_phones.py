@@ -76,10 +76,10 @@ def test_stress_marks_are_ignored():
     assert phones("ˌbənˈænə") == phones("bənænə")
 
 
-def test_glottal_stop_is_discarded_not_reported():
+def test_glottal_stop_is_reported_as_unmapped():
     """A glottal onset is a synthesis artefact, not a sound this app teaches."""
     assert phones("ʔæ") == ["ae"]
-    assert unmapped("ʔæ") == []
+    assert unmapped("ʔæ") == ["ʔ"]
 
 
 # -------------------------------------------------------------------- notation

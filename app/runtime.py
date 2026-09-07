@@ -9,21 +9,22 @@ import logging
 import os
 import threading
 import time
-from pathlib import Path
 
 logger = logging.getLogger("wavlm")
 
-WRAPPER_VERSION = "1.0.0"
+WRAPPER_VERSION = "1.0.1"
 
 # Pinned deliberately. A score is only comparable to another score from the same weights,
 # so the revision travels with every result and a bump is a visible, reviewed change --
 # never something that happens because a container restarted. See app/vendor/UPSTREAM.md.
-MODEL_REPO = os.getenv("WAVLM_MODEL_REPO", "Jianshu001/wavlm-phoneme-scorer")
-MODEL_REVISION = os.getenv("WAVLM_MODEL_REVISION", "19f6b9675d02a61dcd5b2aec0fdcc4364c1fc9da")
+MODEL_REPO = "Jianshu001/wavlm-phoneme-scorer"
+MODEL_REVISION = "19f6b9675d02a61dcd5b2aec0fdcc4364c1fc9da"
 CHECKPOINT_FILENAME = "wavlm_finetuned.pt"
 CHECKPOINT_SHA256 = "7b9485b679d9a1219ac7dbef197b5185ec16e7909632b082b1f0576a963e0040"
 CTC_MODEL = "facebook/wav2vec2-xlsr-53-espeak-cv-ft"
 BACKBONE_MODEL = "microsoft/wavlm-large"
+CTC_REVISION = "2c733782da5604684829819a5eb744c193fe9398"
+BACKBONE_REVISION = "c1423ed94bb01d80a3f5ce5bc39f6026a0f4828c"
 
 
 def _env_int(name: str, default: int) -> int:
@@ -44,7 +45,6 @@ MAX_CONCURRENCY = max(1, _env_int("WAVLM_MAX_CONCURRENCY", 1))
 MAX_UPLOAD_MB = max(1, _env_int("WAVLM_MAX_UPLOAD_MB", 25))
 PHERR_THRESHOLD = float(os.getenv("WAVLM_PHERR_THRESHOLD", "0.70"))
 PRELOAD = _env_flag("WAVLM_PRELOAD_MODELS", True)
-VERIFY_CHECKSUM = _env_flag("WAVLM_VERIFY_CHECKSUM", True)
 API_KEY = (os.getenv("WAVLM_API_KEY") or "").strip()
 
 
@@ -78,8 +78,8 @@ class ModelState:
         """Download at the pinned revision and verify the bytes we got.
 
         The hash check is not ceremony: the checkpoint is a pickled `.pt` loaded with
-        `weights_only=False`, so a swapped file executes code. It runs once per blob --
-        a marker file next to it keeps container restarts fast.
+        `weights_only=False`. Re-hash the bytes on each process start; a persistent
+        marker cannot prove that a cached file has not changed.
         """
         from huggingface_hub import hf_hub_download
 
@@ -88,12 +88,6 @@ class ModelState:
             filename=CHECKPOINT_FILENAME,
             revision=MODEL_REVISION,
         )
-        if not VERIFY_CHECKSUM:
-            return path
-
-        marker = Path(path + ".verified")
-        if marker.exists() and marker.read_text(encoding="utf-8").strip() == CHECKPOINT_SHA256:
-            return path
 
         digest = hashlib.sha256()
         with open(path, "rb") as fh:
@@ -104,9 +98,6 @@ class ModelState:
             raise RuntimeError(
                 f"checkpoint sha256 mismatch: expected {CHECKPOINT_SHA256}, got {got}"
             )
-        # A read-only cache is fine; we just re-hash on the next start.
-        with contextlib.suppress(OSError):
-            marker.write_text(CHECKPOINT_SHA256, encoding="utf-8")
         return path
 
     # -- load ------------------------------------------------------------------
@@ -135,6 +126,8 @@ class ModelState:
                     checkpoint_path=self._resolve_checkpoint(),
                     device=device,
                     pherr_threshold=PHERR_THRESHOLD,
+                    ctc_revision=CTC_REVISION,
+                    backbone_revision=BACKBONE_REVISION,
                 )
                 assessor._load_models()
                 self._assessor = assessor
@@ -168,7 +161,16 @@ GATE = asyncio.Semaphore(MAX_CONCURRENCY)
 async def assess(fn, *args, **kwargs):
     """Run a blocking scorer call off the event loop, behind the concurrency gate."""
     async with GATE:
-        return await asyncio.to_thread(fn, *args, **kwargs)
+        task = asyncio.create_task(asyncio.to_thread(fn, *args, **kwargs))
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            # A cancelled HTTP request cannot release the GPU slot or delete its
+            # input while the blocking worker is still using them.
+            try:
+                await task
+            finally:
+                raise
 
 
 def warm_in_background() -> None:
@@ -191,5 +193,7 @@ def model_info() -> dict:
         "checkpoint_sha256": CHECKPOINT_SHA256,
         "ctc": CTC_MODEL,
         "backbone": BACKBONE_MODEL,
+        "ctc_revision": CTC_REVISION,
+        "backbone_revision": BACKBONE_REVISION,
         "wrapper_version": WRAPPER_VERSION,
     }

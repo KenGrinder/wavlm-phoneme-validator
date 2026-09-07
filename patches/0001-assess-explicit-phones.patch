@@ -1,5 +1,5 @@
---- /tmp/pipeline_v2.pristine.py	2026-09-07 13:15:01.107688100 -0400
-+++ app/vendor/pipeline_v2.py	2026-09-07 13:15:09.684721400 -0400
+--- a/app/vendor/pipeline_v2.py
++++ b/app/vendor/pipeline_v2.py
 @@ -1,4 +1,10 @@
  """
 +VENDORED, THEN PATCHED. Do not edit by hand -- see patches/ and app/vendor/UPSTREAM.md.
@@ -11,7 +11,74 @@
  Voice Correction Pipeline v2.0 (WavLM Fine-tuned)
  ==================================================
  Phoneme-level English pronunciation assessment using a fine-tuned WavLM-Large
-@@ -333,11 +339,15 @@
+@@ -113,7 +119,10 @@
+ class PronunciationAssessorV2:
+     """Phoneme-level pronunciation assessment using fine-tuned WavLM backbone."""
+ 
+-    def __init__(self, checkpoint_path=None, device=None, pherr_threshold=DEFAULT_PHERR_THRESHOLD):
++    def __init__(self, checkpoint_path=None, device=None, pherr_threshold=DEFAULT_PHERR_THRESHOLD,
++                 ctc_revision=None, backbone_revision=None):
++        self.ctc_revision = ctc_revision
++        self.backbone_revision = backbone_revision
+         self.device = device or torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+         self.pherr_threshold = pherr_threshold
+         self._checkpoint_path = checkpoint_path or self._resolve_checkpoint()
+@@ -175,7 +184,7 @@
+ 
+         # Load WavLM backbone
+         self._backbone = WavLMModel.from_pretrained(
+-            "microsoft/wavlm-large",
++            "microsoft/wavlm-large", revision=self.backbone_revision,
+             output_hidden_states=False,
+             mask_time_prob=0.0,
+         )
+@@ -183,7 +192,7 @@
+         self._backbone.to(self.device)
+         self._backbone.eval()
+ 
+-        self._fe_backbone = Wav2Vec2FeatureExtractor.from_pretrained("microsoft/wavlm-large")
++        self._fe_backbone = Wav2Vec2FeatureExtractor.from_pretrained("microsoft/wavlm-large", revision=self.backbone_revision)
+ 
+         # Load scoring head
+         self._scorer = PhoneScorerHead()
+@@ -194,11 +203,11 @@
+         # Load CTC model for alignment
+         print("Loading CTC alignment model...", file=sys.stderr)
+         ctc_name = "facebook/wav2vec2-xlsr-53-espeak-cv-ft"
+-        self._ctc_model = Wav2Vec2ForCTC.from_pretrained(ctc_name).to(self.device)
++        self._ctc_model = Wav2Vec2ForCTC.from_pretrained(ctc_name, revision=self.ctc_revision).to(self.device)
+         self._ctc_model.eval()
+-        self._fe_ctc = Wav2Vec2FeatureExtractor.from_pretrained(ctc_name)
+-
+-        vocab_path = hf_hub_download(ctc_name, "vocab.json")
++        self._fe_ctc = Wav2Vec2FeatureExtractor.from_pretrained(ctc_name, revision=self.ctc_revision)
++
++        vocab_path = hf_hub_download(ctc_name, "vocab.json", revision=self.ctc_revision)
+         with open(vocab_path) as f:
+             self._vocab = json.load(f)
+         self._blank_idx = self._vocab.get("<pad>", 0)
+@@ -276,6 +285,8 @@
+                 bp[t][s] = best_s
+ 
+         s = S_ext - 1 if (S_ext >= 2 and dp[T - 1][S_ext - 1] >= dp[T - 1][S_ext - 2]) else max(S_ext - 2, 0)
++        if not np.isfinite(dp[T - 1][s]):
++            return []
+         path = []
+         for t in range(T - 1, -1, -1):
+             path.append((t, extended[s]))
+@@ -326,6 +337,11 @@
+         if cur_tok is not None:
+             segments.append((cur_tok, cur_frames))
+ 
++        if len(segments) != len(phone_indices) or any(
++            tok != expected for (tok, _), expected in zip(segments, phone_indices)
++        ):
++            return None
++
+         # WavLM backbone hidden states
+         bb_inputs = self._fe_backbone(wav_np, sampling_rate=SAMPLE_RATE, return_tensors="pt", padding=True)
+         hidden = self._backbone(bb_inputs.input_values.to(self.device)).last_hidden_state.squeeze(0)  # (T_h, 1024)
+@@ -333,11 +349,15 @@
          T_ctc = emissions.shape[0]
          scale = T_h / T_ctc
  
@@ -28,7 +95,7 @@
                  continue
  
              _, frames = segments[i]
-@@ -362,6 +372,10 @@
+@@ -362,6 +382,10 @@
                  "h": h_pooled,
                  "gop": gop,
                  "n_frames": len(frames),
@@ -39,9 +106,12 @@
              })
  
          # Batch MLP inference
-@@ -398,24 +412,56 @@
+@@ -397,25 +421,60 @@
+ 
          # G2P
          phone_info = self._text_to_phonemes(text)
++        if len(phone_info) > 400:
++            return {"error": "expectation exceeds 400 phones"}
          if not phone_info:
 -            return {"text": text, "overall_score": 0, "words": [], "error": "No phonemes extracted"}
 +            return {"text": text, "overall_score": 0, "words": [], "unmapped": [],
@@ -49,6 +119,7 @@
 +
 +        return self.assess_phones(audio_path, phone_info, text=text)
 +
++    @torch.no_grad()
 +    def assess_phones(self, audio_path, phone_info, text=None):
 +        """
 +        PATCH: assess against a caller-supplied expected phone sequence.
@@ -79,16 +150,17 @@
              if idx >= 0:
                  indices.append(idx)
                  valid_info.append(pi)
+-        if not indices:
+-            return {"text": text, "overall_score": 0, "words": [], "error": "No phonemes mapped"}
 +            else:
 +                unmapped.append({
 +                    "position": position,
 +                    "phone": pi["phone"],
 +                    "word": pi.get("word"),
 +                })
-         if not indices:
--            return {"text": text, "overall_score": 0, "words": [], "error": "No phonemes mapped"}
++        if unmapped or not indices:
 +            return {"text": text, "overall_score": 0, "words": [], "unmapped": unmapped,
-+                    "error": "No phonemes mapped"}
++                    "error": "Expected sequence cannot be represented in full"}
  
          # Load audio & score
          waveform = self.load_audio(audio_path)
@@ -100,7 +172,7 @@
  
          raw_results, valid_idx, h_batch, gop_batch, nf_batch = result
  
-@@ -445,6 +491,9 @@
+@@ -445,6 +504,9 @@
                  "gop": round(raw["gop"], 3),
                  "pherr_prob": round(pherr_prob, 3),
                  "error": pherr_prob >= self.pherr_threshold,
@@ -110,7 +182,7 @@
              })
  
          # Group by word
-@@ -488,6 +537,8 @@
+@@ -488,6 +550,8 @@
              "n_phonemes": len(phoneme_results),
              "n_errors": n_total_errors,
              "error_rate": round(n_total_errors / len(phoneme_results) * 100, 1),

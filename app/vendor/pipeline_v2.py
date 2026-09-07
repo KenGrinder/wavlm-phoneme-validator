@@ -119,7 +119,10 @@ HF_CHECKPOINT_FILENAME = "wavlm_finetuned.pt"
 class PronunciationAssessorV2:
     """Phoneme-level pronunciation assessment using fine-tuned WavLM backbone."""
 
-    def __init__(self, checkpoint_path=None, device=None, pherr_threshold=DEFAULT_PHERR_THRESHOLD):
+    def __init__(self, checkpoint_path=None, device=None, pherr_threshold=DEFAULT_PHERR_THRESHOLD,
+                 ctc_revision=None, backbone_revision=None):
+        self.ctc_revision = ctc_revision
+        self.backbone_revision = backbone_revision
         self.device = device or torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.pherr_threshold = pherr_threshold
         self._checkpoint_path = checkpoint_path or self._resolve_checkpoint()
@@ -181,7 +184,7 @@ class PronunciationAssessorV2:
 
         # Load WavLM backbone
         self._backbone = WavLMModel.from_pretrained(
-            "microsoft/wavlm-large",
+            "microsoft/wavlm-large", revision=self.backbone_revision,
             output_hidden_states=False,
             mask_time_prob=0.0,
         )
@@ -189,7 +192,7 @@ class PronunciationAssessorV2:
         self._backbone.to(self.device)
         self._backbone.eval()
 
-        self._fe_backbone = Wav2Vec2FeatureExtractor.from_pretrained("microsoft/wavlm-large")
+        self._fe_backbone = Wav2Vec2FeatureExtractor.from_pretrained("microsoft/wavlm-large", revision=self.backbone_revision)
 
         # Load scoring head
         self._scorer = PhoneScorerHead()
@@ -200,11 +203,11 @@ class PronunciationAssessorV2:
         # Load CTC model for alignment
         print("Loading CTC alignment model...", file=sys.stderr)
         ctc_name = "facebook/wav2vec2-xlsr-53-espeak-cv-ft"
-        self._ctc_model = Wav2Vec2ForCTC.from_pretrained(ctc_name).to(self.device)
+        self._ctc_model = Wav2Vec2ForCTC.from_pretrained(ctc_name, revision=self.ctc_revision).to(self.device)
         self._ctc_model.eval()
-        self._fe_ctc = Wav2Vec2FeatureExtractor.from_pretrained(ctc_name)
+        self._fe_ctc = Wav2Vec2FeatureExtractor.from_pretrained(ctc_name, revision=self.ctc_revision)
 
-        vocab_path = hf_hub_download(ctc_name, "vocab.json")
+        vocab_path = hf_hub_download(ctc_name, "vocab.json", revision=self.ctc_revision)
         with open(vocab_path) as f:
             self._vocab = json.load(f)
         self._blank_idx = self._vocab.get("<pad>", 0)
@@ -282,6 +285,8 @@ class PronunciationAssessorV2:
                 bp[t][s] = best_s
 
         s = S_ext - 1 if (S_ext >= 2 and dp[T - 1][S_ext - 1] >= dp[T - 1][S_ext - 2]) else max(S_ext - 2, 0)
+        if not np.isfinite(dp[T - 1][s]):
+            return []
         path = []
         for t in range(T - 1, -1, -1):
             path.append((t, extended[s]))
@@ -331,6 +336,11 @@ class PronunciationAssessorV2:
                 cur_frames.append(f)
         if cur_tok is not None:
             segments.append((cur_tok, cur_frames))
+
+        if len(segments) != len(phone_indices) or any(
+            tok != expected for (tok, _), expected in zip(segments, phone_indices)
+        ):
+            return None
 
         # WavLM backbone hidden states
         bb_inputs = self._fe_backbone(wav_np, sampling_rate=SAMPLE_RATE, return_tensors="pt", padding=True)
@@ -411,12 +421,15 @@ class PronunciationAssessorV2:
 
         # G2P
         phone_info = self._text_to_phonemes(text)
+        if len(phone_info) > 400:
+            return {"error": "expectation exceeds 400 phones"}
         if not phone_info:
             return {"text": text, "overall_score": 0, "words": [], "unmapped": [],
                     "error": "No phonemes extracted"}
 
         return self.assess_phones(audio_path, phone_info, text=text)
 
+    @torch.no_grad()
     def assess_phones(self, audio_path, phone_info, text=None):
         """
         PATCH: assess against a caller-supplied expected phone sequence.
@@ -452,9 +465,9 @@ class PronunciationAssessorV2:
                     "phone": pi["phone"],
                     "word": pi.get("word"),
                 })
-        if not indices:
+        if unmapped or not indices:
             return {"text": text, "overall_score": 0, "words": [], "unmapped": unmapped,
-                    "error": "No phonemes mapped"}
+                    "error": "Expected sequence cannot be represented in full"}
 
         # Load audio & score
         waveform = self.load_audio(audio_path)

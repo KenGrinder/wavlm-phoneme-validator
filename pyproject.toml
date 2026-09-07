@@ -1,6 +1,6 @@
 [project]
 name = "wavlm-phoneme-validator"
-version = "1.0.0"
+version = "1.0.1"
 description = "Phoneme-level pronunciation scoring API with explicit expected-pronunciation input"
 requires-python = ">=3.10"
 license = { text = "MIT" }

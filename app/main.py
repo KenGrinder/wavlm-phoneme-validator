@@ -9,6 +9,8 @@ asked for.
 
 from __future__ import annotations
 
+import asyncio
+import hmac
 import logging
 import os
 import time
@@ -20,7 +22,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from . import runtime
+from . import audio, runtime
 from .phones import PhoneError, phones_from_arpabet, phones_from_ipa, split_expected
 from .schemas import AssessResponse, Health, Info, Ready
 
@@ -70,7 +72,7 @@ def require_key(request: Request) -> None:
         auth = request.headers.get("authorization") or ""
         if auth.lower().startswith("bearer "):
             supplied = auth[7:].strip()
-    if supplied != runtime.API_KEY:
+    if not hmac.compare_digest(supplied, runtime.API_KEY):
         raise HTTPException(status_code=401, detail="invalid or missing API key")
 
 
@@ -182,7 +184,14 @@ async def assess(
             detail="supply exactly one of expected_ipa, expected_arpabet or text",
         )
 
-    payload = await file.read()
+    expected_ipa = expected_ipa.strip() if expected_ipa else None
+    expected_arpabet = expected_arpabet.strip() if expected_arpabet else None
+    text = text.strip() if text else None
+    if any(len(value or "") > 2000 for value in (expected_ipa, expected_arpabet, text, words)):
+        raise HTTPException(status_code=413, detail="expectation exceeds 2000 characters")
+
+    payload = await file.read(runtime.MAX_UPLOAD_MB * 1024 * 1024 + 1)
+    await file.close()
     if not payload:
         raise HTTPException(status_code=400, detail="empty upload")
     if len(payload) > runtime.MAX_UPLOAD_MB * 1024 * 1024:
@@ -206,7 +215,7 @@ async def assess(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     try:
-        assessor = runtime.STATE.load()
+        assessor = await asyncio.to_thread(runtime.STATE.load)
     except Exception as exc:  # noqa: BLE001 - the reason is already on /ready
         raise HTTPException(status_code=503, detail=f"models unavailable: {exc}") from exc
 
@@ -223,8 +232,10 @@ async def assess(
 
         if entries is None:
             usable, unmapped = [], []
-            result = await runtime.assess(assessor.assess, tmp_path, text)
+            result = await runtime.assess(audio.run, assessor, tmp_path, None, text)
         else:
+            if len(entries) > 400:
+                raise HTTPException(status_code=413, detail="expectation exceeds 400 phones")
             usable, unmapped = split_expected(entries)
             if not usable:
                 raise HTTPException(
@@ -234,9 +245,15 @@ async def assess(
                         + " ".join(u["ipa"] for u in unmapped)
                     ),
                 )
-            result = await runtime.assess(
-                assessor.assess_phones, tmp_path, usable, text
-            )
+            if unmapped:
+                # Do not force-align a shortened target. Return no scores.
+                result = {"unmapped": [], "phonemes": [], "words": []}
+            else:
+                result = await runtime.assess(
+                    audio.run, assessor, tmp_path, usable, text
+                )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -247,7 +264,7 @@ async def assess(
             with suppress(OSError):
                 os.remove(tmp_path)
 
-    if result.get("error"):
+    if result.get("error") and not result.get("unmapped"):
         raise HTTPException(status_code=422, detail=result["error"])
 
     # Two sources of dropped phones: ones we refused to send, and ones the patched
@@ -265,18 +282,30 @@ async def assess(
     expected_ipa_list = [e["ipa"] for e in usable]
     scored = result.get("phonemes", [])
     phonemes = [
-        {**ph, "ipa": expected_ipa_list[i] if i < len(expected_ipa_list) else None}
+        {**ph, "ipa": expected_ipa_list[i] if i < len(expected_ipa_list) else None,
+         "error": ph["pherr_prob"] >= threshold}
         for i, ph in enumerate(scored)
     ]
-    ends = [p["end_ms"] for p in phonemes if p.get("end_ms") is not None]
+    if not unmapped and (not phonemes or (usable and len(phonemes) != len(usable))):
+        raise HTTPException(status_code=422, detail="incomplete phoneme assessment")
+    grouped = {}
+    for ph in phonemes:
+        grouped.setdefault(ph.get("word_idx", 0), []).append(ph)
+    word_scores = []
+    for group in grouped.values():
+        count = sum(p["error"] for p in group)
+        word_scores.append({"word": group[0].get("word") or "", "phonemes": group,
+                            "score": round(sum(p["score"] for p in group) / len(group), 1),
+                            "n_errors": count, "n_phonemes": len(group), "has_error": count > 0})
+    n_errors = sum(p["error"] for p in phonemes)
 
     return AssessResponse(
         status="degraded" if unmapped else "ok",
         text=result.get("text"),
         overall_score=result.get("overall_score", 0.0),
         n_phonemes=result.get("n_phonemes", len(phonemes)),
-        n_errors=result.get("n_errors", 0),
-        error_rate=result.get("error_rate", 0.0),
+        n_errors=n_errors,
+        error_rate=round(n_errors / len(phonemes) * 100, 1) if phonemes else 0,
         pherr_threshold=threshold,
         expected={
             "source": source,
@@ -285,8 +314,8 @@ async def assess(
         },
         unmapped=unmapped,
         phonemes=phonemes,
-        words=result.get("words", []),
-        duration_ms=max(ends) if ends else None,
+        words=word_scores,
+        duration_ms=result.get("duration_ms"),
         elapsed_ms=round((time.monotonic() - started) * 1000, 1),
         device=runtime.STATE.device,
         model=runtime.model_info(),

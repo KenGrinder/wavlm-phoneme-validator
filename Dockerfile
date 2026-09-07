@@ -60,7 +60,8 @@ COPY app /srv/app
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh \
-    && mkdir -p /config
+    && mkdir -p /config/huggingface /config/torch /config/cache \
++    && chown -R 99:100 /config
 
 ARG VERSION=dev
 ARG VCS_REF=unknown
@@ -76,6 +77,8 @@ LABEL org.opencontainers.image.title="WavLM Phoneme Validator" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.created="${BUILD_DATE}"
+
+USER 99:100
 
 VOLUME ["/config"]
 EXPOSE 8000

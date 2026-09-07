@@ -48,6 +48,8 @@ class ModelPins(BaseModel):
     checkpoint_sha256: str
     ctc: str
     backbone: str
+    ctc_revision: str
+    backbone_revision: str
     wrapper_version: str
 
 
@@ -87,6 +89,9 @@ class Limits(BaseModel):
     max_upload_mb: int
     max_concurrency: int
     default_pherr_threshold: float
+    max_audio_seconds: int = 30
+    max_text_length: int = 2000
+    max_phones: int = 400
 
 
 class Info(BaseModel):

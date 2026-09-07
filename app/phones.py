@@ -57,9 +57,9 @@ _STRIP = str.maketrans(
     "'\u2019:",
 )
 
-# Symbols that are not phones we can score. A glottal stop is an artefact of the
-# synthesizer, not a sound this app teaches, so it is discarded rather than reported.
-_DISCARD = {"\u0294", "\u02c0", "-", "_", "|", "."}
+# Separators only. Unsupported speech sounds, including glottal stops, remain
+# visible as unmapped targets; the service must never silently remove them.
+_DISCARD = {"-", "_", "|", "."}
 
 # Notational variants that mean the same phone before we ever reach the lookup table.
 _ALIASES = {

@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app import runtime
+from app import audio, runtime
 from app.main import app
 
 AUDIO = b"RIFF$\x00\x00\x00WAVEfmt " + b"\x00" * 32
@@ -58,6 +58,10 @@ class StubAssessor:
 @pytest.fixture
 def client(monkeypatch):
     stub = StubAssessor()
+    monkeypatch.setattr(runtime, "PRELOAD", False)
+    monkeypatch.setattr(audio, "run", lambda assessor, path, entries, text:
+                        assessor.assess(path, text) if entries is None else
+                        assessor.assess_phones(path, entries, text))
     monkeypatch.setattr(runtime.STATE, "load", lambda: stub)
     monkeypatch.setattr(runtime.STATE, "device", "cpu")
     monkeypatch.setattr(runtime, "API_KEY", "")
@@ -155,7 +159,8 @@ def test_unmappable_phone_degrades_the_response_instead_of_shortening_it(client)
     body = post(client, expected_ipa="k ☃ t").json()
     assert body["status"] == "degraded"
     assert [u["ipa"] for u in body["unmapped"]] == ["☃"]
-    assert client.stub.calls == [("assess_phones", ["k", "t"])]
+    assert client.stub.calls == []
+    assert body["phonemes"] == []
 
 
 def test_nothing_mappable_is_an_error_not_a_pass(client):
@@ -179,3 +184,26 @@ def test_response_records_the_model_revision(client):
     body = post(client, expected_ipa="k").json()
     assert body["model"]["revision"] == runtime.MODEL_REVISION
     assert body["device"] == "cpu"
+
+
+def test_request_threshold_changes_all_error_summaries(client):
+    body = post(client, expected_ipa="k æ t", pherr_threshold=0.05).json()
+    assert body["n_errors"] == 3
+    assert body["error_rate"] == 100
+    assert all(p["error"] for p in body["phonemes"])
+    assert body["words"][0]["n_errors"] == 3
+    assert client.stub.__dict__.get("pherr_threshold") is None
+
+
+def test_empty_model_output_is_not_success(client, monkeypatch):
+    monkeypatch.setattr(client.stub, "assess_phones", lambda *args: {"phonemes": []})
+    assert post(client, expected_ipa="k").status_code == 422
+
+
+def test_whitespace_input_does_not_override_another_target(client):
+    assert post(client, expected_ipa=" ", expected_arpabet="K").status_code == 200
+
+
+def test_long_expectation_is_rejected_before_inference(client):
+    assert post(client, expected_ipa="k" * 2001).status_code == 413
+    assert client.stub.calls == []

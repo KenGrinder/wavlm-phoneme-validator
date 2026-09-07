@@ -11,14 +11,10 @@ A recogniser answers **"what did you hear?"**. This answers **"how well was *thi
 specific expected phone* produced?"** — forced alignment against a pronunciation you
 supply, then a score and an error probability for each phone in it.
 
-That difference matters most exactly where recognisers are weakest. Ask a phone
-recogniser what it heard in an isolated 300 ms `/æ/`, `/ɛ/`, `/ɪ/` or `/ʌ/` and it
-returns a generic `"a"` for all four. It is not being asked a question it can answer.
-Give this service the phone you *expected* and it grades that phone instead of trying to
-name it.
-
-So the two are complements, not substitutes: run both, and the strongest signal you can
-get is two independent models naming the same phone as wrong.
+The two services provide complementary evidence. Whether this scorer helps on
+isolated synthetic phones must be established with current human-labelled clips.
+Its wav2vec2 CTC aligner can share failure modes with another wav2vec2 recogniser;
+agreement raises review priority but does not prove a pronunciation is wrong.
 
 ## The rule this service is built around
 
@@ -57,7 +53,7 @@ curl -X POST http://localhost:8005/api/v1/assess \
 }
 ```
 
-The first start downloads about 1.3 GB into `/config`. `/api/v1/health` answers
+The first start downloads several gigabytes into `/config`. `/api/v1/health` answers
 immediately; `/api/v1/ready` answers `503` until the weights are loaded. Poll readiness,
 not health.
 
@@ -106,8 +102,6 @@ clean pass. Treat `degraded` as "this clip was not fully checked".
 | `WAVLM_PHERR_THRESHOLD` | `0.70` | upstream's calibration — see *Calibrate before trusting* |
 | `WAVLM_API_KEY` | — | optional; `X-API-Key` or `Authorization: Bearer` |
 | `WAVLM_CORS_ORIGINS` | — | comma-separated browser origins |
-| `WAVLM_VERIFY_CHECKSUM` | `1` | verify the checkpoint's sha256 on first load |
-| `WAVLM_MODEL_REVISION` | pinned | override only to test a different revision |
 | `PORT` | `8000` | |
 
 ## Unraid
@@ -123,21 +117,16 @@ It needs the NVIDIA Driver plugin and a working container runtime, and it maps h
 
 ## Hardware notes
 
-The GPU image targets **Pascal** (GTX 10-series). That constrains the toolchain, and the
-constraint is not obvious:
+The target server uses a GTX 1080 Ti (Pascal, sm_61), shared with Kokoro and
+OpenPronounce. This image pins CUDA 12.6 and torch 2.7.1, a combination verified
+by actual inference on that card. Check kernel support and run a real assessment
+before changing either dependency; a driver's reported CUDA version alone does
+not establish compatibility. FP32 is the default; benchmark before changing precision.
 
-- CUDA **12.6** and torch **2.7.1** are the newest that still ship `sm_61` kernels.
-  PyTorch dropped Maxwell/Pascal from the cu128+ wheels at 2.8, and the failure is quiet.
-- Everything runs **fp32**. Pascal has no bf16 and its fp16 rate is 1:64, so half
-  precision is slower, not faster.
-- A driver reporting "CUDA Version: 13.0" is stating its ceiling, not a usable target.
-
-Loaded, the service holds roughly **3 GB of VRAM** (WavLM-Large ≈ 1.3 GB, the XLSR CTC
-aligner ≈ 1.3 GB, plus activations). Keep `WAVLM_MAX_CONCURRENCY=1` on an 11 GB card
-shared with anything else; two concurrent forward passes will not fit.
-
-CPU works. On a 16-core desktop a one-second clip takes a couple of seconds — fine for
-spot checks, slow for a few thousand.
+On 2026-09-07 total GPU usage rose from 5429 to about 7981 MiB after loading this
+service alongside both existing services. This is a shared-card snapshot, not a
+peak-memory guarantee. Keep concurrency at 1 and measure long-input peaks before
+raising it. CPU mode is available; its latency has not been benchmarked here.
 
 ## Calibrate before trusting the numbers
 
@@ -178,3 +167,22 @@ re-apply it after an upstream bump.
 ## Licence
 
 MIT, as is the upstream model.
+
+## 1.0.1 deployment and scoring corrections
+
+The service runs directly as UID 99 / GID 100, including with `--cap-drop=ALL` and
+`--security-opt=no-new-privileges`. Create the host config directory with that owner
+before starting, or use `--user UID:GID` with a directory owned by that identity.
+It no longer changes accounts or ownership at startup. CPU/GPU release smoke tests
+exercise an empty bind mount with these same restrictions before publishing.
+
+All three model revisions are fixed and reported in `/api/v1/info`. The checkpoint
+hash is verified on each process start. Input audio is limited to 30 seconds and
+25 MB; expectation strings to 2000 characters and 400 phones. An unsupported target
+returns no partial scores. A failed/incomplete assessment is never a clean pass.
+
+WavLM uses a wav2vec2 CTC aligner. Its errors may correlate with other wav2vec2
+validators. It remains advisory for synthetic isolated phones until tested on
+current human-labelled recordings. Agreement is a review priority, not a substitute
+for a human pronunciation judgement. Docker health reports liveness only; clients
+must also check readiness. Docker by itself does not restart unhealthy containers.

@@ -62,22 +62,11 @@ jobs:
         # asserts the ARPABET table parsed out of the vendored file is the one the
         # scorer actually uses. A drift there would silently mis-map every phone.
         run: |
-          docker run --rm \
+          docker run --rm --user 0 \
             -v "${{ github.workspace }}/tests:/srv/tests:ro" \
             -v "${{ github.workspace }}/pyproject.toml:/srv/pyproject.toml:ro" \
             -e PYTHONPATH=/srv \
             wavlm-phoneme-validator:ci \
             sh -c "pip install --quiet pytest httpx && python -m pytest /srv/tests -q"
-      - name: Smoke-test the service
-        run: |
-          docker run -d --name wavlm-ci -p 8000:8000 -e WAVLM_PRELOAD_MODELS=0 \
-            wavlm-phoneme-validator:ci
-          for _ in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:8000/api/v1/health >/dev/null 2>&1; then break; fi
-            sleep 2
-          done
-          curl -fsS http://127.0.0.1:8000/api/v1/health
-          curl -fsS http://127.0.0.1:8000/api/v1/info
-          # 503 until the weights load is the contract, so assert the code, not the body.
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/api/v1/ready)" = "503"
-          docker rm -f wavlm-ci
+      - name: Smoke-test with the Unraid permissions
+        run: bash scripts/smoke-container.sh wavlm-phoneme-validator:ci

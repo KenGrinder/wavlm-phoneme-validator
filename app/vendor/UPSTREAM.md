@@ -49,3 +49,12 @@ pytest                                                 # the tests cover all thr
 Update the revision and checkpoint hashes in this file and in `app/runtime.py`
 (`MODEL_REVISION`, `CHECKPOINT_SHA256`) together — a score is not comparable across
 revisions, so both are recorded with every result.
+
+## 1.0.1 review corrections
+
+The patch also pins the WavLM and CTC dependencies, rejects impossible alignment
+paths, and returns no scores when a requested phone cannot be represented. This
+avoids aligning a shortened target and attaching later scores to the wrong phone.
+The API recomputes error flags and summaries for each request threshold and bounds
+decoding to 30 seconds. `start_ms` and `end_ms` are approximate CTC alignment spans,
+not independently measured phoneme boundaries.

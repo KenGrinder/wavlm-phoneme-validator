@@ -8,6 +8,8 @@ services:
     image: ghcr.io/kengrinder/wavlm-phoneme-validator:gpu
     container_name: wavlm-phoneme-validator
 
+    user: "${WAVLM_UID:-99}:${WAVLM_GID:-100}"
+
     ports:
       - "${WAVLM_PORT:-8005}:8000"
 
