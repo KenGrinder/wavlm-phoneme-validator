@@ -168,6 +168,24 @@ re-apply it after an upstream bump.
 
 MIT, as is the upstream model.
 
+## 1.0.2 phone coverage
+
+Two classes of target were coming back unscored rather than scored badly, found on a
+real 1457-clip catalogue where they accounted for all 43 incomplete assessments.
+
+The alveolar tap is now scored as the /t/ it flaps. American English flaps /t/ between
+vowels, so espeak phonemises a word like "thirty" with a tap and the scorer has no tap
+of its own; every clip containing that word was reported degraded.
+
+Clusters that are not phones -- `tr`, `dr`, `dz`, `ts`, `ar`, `ir`, `ur` -- are
+decomposed by the tokenizer. Upstream lists them as single ARPABET keys, but the CTC
+vocabulary has no symbol for any of them, so alignment failed and *neither* half was
+scored. They remain in the lookup, so an explicit ARPABET `TR` still resolves.
+
+This changes coverage, not accuracy. No clip scores better; 43 of them move from
+"not checked" to "checked". `wrapper_version` is reported with every result, so scores
+from 1.0.1 and 1.0.2 are distinguishable rather than silently pooled.
+
 ## 1.0.1 deployment and scoring corrections
 
 The service runs directly as UID 99 / GID 100, including with `--cap-drop=ALL` and

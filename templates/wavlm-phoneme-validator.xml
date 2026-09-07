@@ -21,7 +21,8 @@
   <Date>2026-09-07</Date>
   <MinVer>6.12.0</MinVer>
   <License>MIT</License>
-  <Changes>1.0.1: Fix restricted Unraid startup, pin all models, bound decoding and reject incomplete assessments.</Changes>
+  <Changes>1.0.2: Score the alveolar tap and decompose consonant clusters the aligner has no symbol for; both were returning unscored.
+1.0.1: Fix restricted Unraid startup, pin all models, bound decoding and reject incomplete assessments.</Changes>
   <ExtraSearchTerms>pronunciation phoneme wavlm speech tts qa validation openpronounce kokoro</ExtraSearchTerms>
   <DonateText/>
   <DonateLink/>

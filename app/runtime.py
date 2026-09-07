@@ -12,7 +12,7 @@ import time
 
 logger = logging.getLogger("wavlm")
 
-WRAPPER_VERSION = "1.0.1"
+WRAPPER_VERSION = "1.0.2"
 
 # Pinned deliberately. A score is only comparable to another score from the same weights,
 # so the revision travels with every result and a bump is a visible, reviewed change --
