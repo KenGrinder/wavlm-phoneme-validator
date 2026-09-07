@@ -1,0 +1,16 @@
+# A CRLF in docker-entrypoint.sh makes the shebang `#!/usr/bin/env bash\r` and the
+# container dies with "bad interpreter". Everything the image runs stays LF.
+*.sh text eol=lf
+*.py text eol=lf
+*.xml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+*.txt text eol=lf
+*.md text eol=lf
+*.patch text eol=lf
+.dockerignore text eol=lf
+.gitignore text eol=lf
+Dockerfile text eol=lf
+Dockerfile.cpu text eol=lf
+LICENSE text eol=lf
