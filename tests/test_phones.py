@@ -182,3 +182,44 @@ def test_tokenizer_is_total():
     """Anything in the table round-trips; nothing silently vanishes."""
     for ipa in IPA_TO_PHONE:
         assert tokenize_ipa(ipa), f"{ipa!r} tokenised to nothing"
+
+
+# ------------------------------------------------- what the aligner can reach
+
+def test_alveolar_tap_scores_as_the_t_it_flaps():
+    """espeak phonemises "thirty" with a tap, and the scorer has no tap symbol.
+
+    Left alone this is not a wrong score, it is NO score: the phone comes back
+    unmapped and the clip is reported as not fully checked. Measured on the real
+    catalogue, this one symbol accounted for 40 of 43 unscorable clips.
+    """
+    usable, dropped = split_expected(phones_from_ipa("θ ɝ ɾ i"))
+    assert [e["phone"] for e in usable] == ["th", "er", "t", "iy"]
+    assert dropped == []
+
+
+@pytest.mark.parametrize(
+    "ipa,expected",
+    [
+        ("tɹ", ["t", "r"]),      # praise.tried_another_way, praise.nice_try
+        ("dɹ", ["d", "r"]),
+        ("dz", ["d", "z"]),      # hint.countdown.2
+        ("ts", ["t", "s"]),
+        ("ɪɹ", ["ih", "r"]),
+        ("ʊɹ", ["uh", "r"]),
+    ],
+)
+def test_clusters_decompose_because_the_ctc_vocab_has_no_symbol_for_them(ipa, expected):
+    """The upstream table lists these as single ARPABET keys; alignment cannot use them.
+
+    Keeping them whole meant neither half was scored. Splitting them means both are.
+    """
+    assert phones(ipa) == expected
+
+
+def test_real_phones_are_still_whole():
+    """The decomposition must not reach the affricates and diphthongs beside them."""
+    assert phones("tʃ") == ["ch"]
+    assert phones("dʒ") == ["jh"]
+    assert phones("aɪ") == ["ay"]
+    assert phones("oʊ") == ["ow"]

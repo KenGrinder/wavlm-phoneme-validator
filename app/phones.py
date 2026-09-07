@@ -63,6 +63,11 @@ _DISCARD = {"-", "_", "|", "."}
 
 # Notational variants that mean the same phone before we ever reach the lookup table.
 _ALIASES = {
+    # The alveolar tap. American English flaps /t/ between vowels -- espeak
+    # phonemises "thirty" with one -- and the scorer has no tap of its own, so
+    # without this the flapped consonant is unscorable and the whole clip comes
+    # back degraded. It is the /t/ the word is teaching; score it as /t/.
+    "ɾ": "t",
     "\u0261": "g",   # LATIN SMALL LETTER SCRIPT G -> g
     "\u02a4": "d\u0292",  # d3 ligature -> dz
     "\u02a7": "t\u0283",  # tS ligature -> tS
@@ -101,8 +106,21 @@ def _build_ipa_index() -> dict[str, str]:
 
 IPA_TO_PHONE = _build_ipa_index()
 
+# Sequences the upstream table lists as single ARPABET keys, but which the CTC
+# vocabulary has no symbol for -- so forced alignment against them fails and the
+# phone is reported unmapped rather than scored. They are clusters, not phones:
+# /tr/ is a /t/ followed by an /r/, and the calling app already treats them as two
+# segments for exactly this reason. They stay in IPA_TO_PHONE so an explicit
+# ARPABET "TR" still resolves, but the tokenizer decomposes them so both halves
+# get scored instead of neither.
+_CLUSTERS = {"tr", "dr", "dz", "ts", "ar", "ir", "ur"}
+
 # Longest-match first, so /tS/ and /aI/ are one phone rather than two.
-_IPA_SYMBOLS = sorted(IPA_TO_PHONE, key=len, reverse=True)
+_IPA_SYMBOLS = sorted(
+    (ipa for ipa, phone in IPA_TO_PHONE.items() if phone not in _CLUSTERS),
+    key=len,
+    reverse=True,
+)
 
 
 class PhoneError(ValueError):
